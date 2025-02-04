@@ -1,90 +1,196 @@
-import { Request, Response } from "express";
-import { IUser, RegisterDto, LoginDto, RefreshTokenDto } from "./auth.dto";
-import User from "./auth.schema";
-import {
-  generateAccessToken,
-  generateRefreshToken,
-} from "../common/helper/jwt.helper";
-import bcrypt from "bcryptjs";
-import nodemailer from "nodemailer";
+import * as UserService from "./user.service";
+import { createResponse } from "../common/helper/response.helper";
+import asyncHandler from "express-async-handler";
+import { type Request, type Response } from "express";
+import { IUser } from "./user.dto";
+import { sendEmail } from "../common/helper/sendEmail";
 import jwt from "jsonwebtoken";
-
-export const registerUser = async (req: Request, res: Response) => {
-  const { name, email, password }: RegisterDto = req.body;
-
-  if (!name || !email || !password) {
-    return res.status(400).json({ message: "All fields are required" });
-  }
-
-  const userExists = await User.findOne({ email });
-  if (userExists) return res.status(400).json({ message: "User already exists" });
-
-  const user = await User.create({ name, email, password, role: "USER" });
-  if (user) {
-    res.status(201).json({ message: "User registered successfully" });
-  } else {
-    res.status(400).json({ message: "Invalid user data" });
-  }
-};
-
-export const loginUser = async (req: Request, res: Response) => {
-  const { email, password } = req.body;
-  const user = await User.findOne({ email });
-  if (user && (await user.matchPassword(password))) {
-    const accessToken = generateAccessToken(user.id);
-    const refreshToken = generateRefreshToken(user.id);
-    user.refreshToken = refreshToken;
-    await user.save();
-    res.cookie("token", accessToken, { httpOnly: true, secure: true });
-    res.json({ accessToken, refreshToken });
-  } else {
-    res.status(401).json({ message: "Invalid credentials" });
-  }
-};
-
-export const forgotPassword = async (req: Request, res: Response) => {
+/**
+ * create user
+ * @route POST /user/register
+ * @access private
+ * @returns user
+ */
+export const createUser = asyncHandler(async (req: Request, res: Response) => {
   const { email } = req.body;
-  const user = await User.findOne({ email });
-  if (!user) return res.status(404).json({ message: "User not found" });
+  //Check if user already exists
+  const existingUser = await UserService.getUserByEmail(email);
+  //if already exists then throw error
+  if (existingUser) {
+    throw new Error("User already exists");
+  }
 
-  const resetToken = generateAccessToken(user.id);
-  const transporter = nodemailer.createTransport({
-    service: "Gmail",
-    auth: { user: process.env.EMAIL, pass: process.env.EMAIL_PASSWORD },
+  const result = await UserService.createUser({
+    ...req.body,
   });
 
-  const mailOptions = {
-    from: process.env.EMAIL,
-    to: user.email,
-    subject: "Password Reset",
-    text: `Click to reset: ${process.env.CLIENT_URL}/reset-password/${resetToken}`,
-  };
-
-  transporter.sendMail(mailOptions, (error, info) => {
-    if (error) return res.status(500).json({ message: "Email not sent" });
-    res.json({ message: "Email sent successfully" });
+  res.send(createResponse(result, "User Created Successfully"));
+});
+/**
+ * login user
+ * @route POST /user/login
+ * @access public
+ * @returns user
+ */
+export const loginUser = asyncHandler(async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+  //check if user does not exist
+  const user = await UserService.getUserByEmail(email);
+  //if not exist then throw an error
+  if (!user) {
+    throw new Error("User not found");
+  }
+  //check if password is valid
+  const isPasswordValid = await UserService.comparePassword({
+    password,
+    userPassword: user.password,
   });
-};
+  //if password is not valid then throw an error
+  if (!isPasswordValid) {
+    throw new Error("Invalid password");
+  }
 
-export const refreshToken = async (req: Request, res: Response) => {
-  const { refreshToken }: RefreshTokenDto = req.body;
-  if (!refreshToken) return res.status(403).json({ message: "Refresh token required" });
+  //if password is valid then generate a token and send token in cookies to validate
+  const accessToken = await UserService.generateAccessToken(
+    user._id,
+    user.role
+  );
+  const refreshToken = await UserService.generateRefreshToken(
+    user._id,
+    user.role
+  );
+  const { password: p, ...rest } = user;
+  res
+    .cookie("accessToken", accessToken)
+    .cookie("refreshToken", refreshToken)
+    .send(
+      createResponse(
+        { user: rest, accessToken, refreshToken },
+        "Login Successfully"
+      )
+    );
+});
+/**
+ * Retrieves all users in the database.
+ * @route GET /user/all
+ * @access private
+ */
+export const getAllUsers = asyncHandler(async (req: Request, res: Response) => {
+  //get all users from database with USER role
+  const result = await UserService.getAllUsers();
+  //send the response array
+  res.send(createResponse(result, "Users Fetched Successfully"));
+});
+/**
+ * @function
+ * @name refreshTokens
+ * @description Refreshes access token and refresh token
+ * @param {Request} req - Express request object
+ * @param {Response} res - Express response object
+ * @returns {Promise<void>}
+ * @throws {Error} If refresh token is invalid
+ */
+export const refreshTokens = asyncHandler(
+  async (req: Request, res: Response) => {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) {
+      throw new Error("Refresh token not found");
+    }
+    const response = await UserService.refreshTokens(refreshToken);
+    res
+      .cookie("accessToken", response.accessToken)
+      .cookie("refreshToken", response.refreshToken)
+      .send(createResponse(response, "Tokens Refreshed Successfully"));
+  }
+);
+/**
+ * Logs out the current user by removing their access and refresh tokens.
+ * @function
+ * @name logoutUser
+ * @param {Request} req - Express request object
+ * @param {Response} res - Express response object
+ * @returns {Promise<void>}
+ */
+export const logoutUser = asyncHandler(async (req: Request, res: Response) => {
+  const user = await UserService.logout((req.user as IUser)?._id);
 
-  try {
-    const decoded: any = jwt.verify(refreshToken, process.env.REFRESH_SECRET as string);
-    const user = await User.findById(decoded.userId);
-    if (!user || user.refreshToken !== refreshToken) {
-      return res.status(403).json({ message: "Invalid refresh token" });
+  res
+    .clearCookie("accessToken")
+    .clearCookie("refreshToken")
+    .send(createResponse(user, "Logout Successfully"));
+});
+
+/**
+ * Handles forgot password functionality.
+ * @function
+ * @name forgotPassword
+ * @description Handles forgot password functionality by generating a forgot password token and sending it to the user's email.
+ * @param {Request} req - Express request object
+ * @param {Response} res - Express response object
+ * @property {string} email - The email address of the user to send the email to.
+ * @returns {Promise<void>}
+ * @throws {Error} If the forgot password token is not generated successfully.
+ */
+export const forgotPassword = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { email } = req.body;
+    if (!email) {
+      throw new Error("Email is required");
     }
 
-    const newAccessToken = generateAccessToken(user.id);
-    const newRefreshToken = generateRefreshToken(user.id);
-    
-    user.refreshToken = newRefreshToken;
-    await user.save();
+    const forgotPasswordTokenExpiry = new Date();
+    forgotPasswordTokenExpiry.setHours(
+      forgotPasswordTokenExpiry.getHours() + 1
+    );
+    const forgotPasswordToken = jwt.sign(
+      {
+        email: email,
+      },
+      process.env.JWT_SECRET as string
+    );
 
-    res.json({ accessToken: newAccessToken, refreshToken: newRefreshToken });
-  } catch (error) {
-    res.status(403).json({ message: "Invalid token" });
+    const forget = await UserService.forgotPassword(
+      email,
+      forgotPasswordToken,
+      forgotPasswordTokenExpiry
+    );
+
+    if (forget) {
+      res.send(
+        createResponse(forgotPasswordToken, "Email sent successfully to forgot")
+      );
+    } else {
+      throw new Error("Error while forgot password");
+    }
   }
-};
+);
+
+/**
+ * Updates the password for a user using a forgot password token.
+ * @function
+ * @name updatePassword
+ * @description Updates the password for a user using a forgot password token.
+ * @param {Request} req - Express request object
+ * @param {Response} res - Express response object
+ * @property {string} token - The forgot password token.
+ * @property {string} password - The new password to set for the user.
+ * @returns {Promise<void>}
+ * @throws {Error} If the token is not found.
+ * @throws {Error} If the password is not provided.
+ * @throws {Error} If the user with the specific token is not found.
+ * @throws {Error} If the token has expired.
+ */
+export const updatePassword = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { token, password } = req.body;
+    if (!token) {
+      throw new Error("Token is required");
+    }
+    if (!password) {
+      throw new Error("password is required");
+    }
+    const user = await UserService.updatePassword(token, password);
+
+    res.send(createResponse(user, "Password Updated Successfully"));
+  }
+);

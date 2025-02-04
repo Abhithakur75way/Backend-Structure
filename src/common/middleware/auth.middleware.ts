@@ -1,20 +1,25 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import User from "../../auth/auth.schema";
+import UserSchema from "../../user/user.schema";
 
-interface AuthRequest extends Request {
-  user?: any;
-}
-
-export const protect = async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const token = req.cookies?.token;
-  if (!token) return res.status(401).json({ message: "Unauthorized" });
-
+export const authenticate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const decoded: any = jwt.verify(token, process.env.JWT_SECRET as string);
-    req.user = await User.findById(decoded.userId).select("-password");
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      res.status(401).json({ success: false, message: "Unauthorized: No token provided" });
+      return; // End the middleware after sending the response
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { _id: string };
+    const user = await UserSchema.findById(decoded._id).select("-password");
+    if (!user) {
+      res.status(401).json({ success: false, message: "Unauthorized: Invalid token" });
+      return; // End the middleware after sending the response
+    }
+
+    req.user = user; // Attach user to request
     next();
   } catch (error) {
-    return res.status(401).json({ message: "Invalid Token" });
+    res.status(401).json({ success: false, message: "Unauthorized: Invalid or expired token" });
   }
 };
