@@ -2,7 +2,6 @@ import { type IUser } from "./user.dto";
 import userSchema from "./user.schema";
 import UserSchema from "./user.schema";
 import jwt from "jsonwebtoken";
-import axios from "axios";
 import bcrypt from "bcrypt";
 import { sendEmail, resetPasswordEmailTemplate } from "../common/services/email.service";
 export const createUser = async (data: IUser) => {
@@ -68,7 +67,7 @@ export const loginUser = async (email: string, password: string) => {
 
 
 export const generateAccessToken = (id: string, role: string): string => {
-    return jwt.sign({ id, role }, process.env.JWT_SECRET as string, { expiresIn: "15m" });
+    return jwt.sign({ id, role }, process.env.JWT_SECRET as string, { expiresIn: "1m" });
 }
 
 
@@ -88,7 +87,7 @@ export const refreshTokens = async (refreshToken: string) => {
             id: string;
         };
 
-        // Find the user by ID and verify the refresh token
+        // Find the user and verify if refresh token matches
         const user = await userSchema.findOne({ _id: decoded.id, refreshToken });
         if (!user) {
             throw new Error("Invalid or expired refresh token");
@@ -98,21 +97,16 @@ export const refreshTokens = async (refreshToken: string) => {
         const newAccessToken = generateAccessToken(user._id, user.role);
         const newRefreshToken = generateRefreshToken(user._id, user.role);
 
-        // Update the refresh token in the database (rotate token)
+        // Update refresh token in database (to prevent reuse)
         user.refreshToken = newRefreshToken;
         await user.save();
 
-        // Return the new tokens
         return { accessToken: newAccessToken, refreshToken: newRefreshToken };
     } catch (error: any) {
         console.error("Error refreshing tokens:", error);
         throw new Error("Invalid or expired refresh token");
     }
 };
-
-
-
-
 
 
 

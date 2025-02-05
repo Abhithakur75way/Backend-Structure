@@ -42,7 +42,8 @@ app.use(rateLimiter)
 app.use(express.json());
 app.use(morgan("dev"));
 app.use(cookieParser())
-app.use(cors({origin : '*', credentials : true}));
+
+app.use(cors({ credentials: true, origin: "http://localhost:5173" })); // Adjust origin to your frontend URL
 
 const initApp = async (): Promise<void> => {
   // init mongodb

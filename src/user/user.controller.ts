@@ -62,13 +62,14 @@ export const refresh = asyncHandler(async (req: Request, res: Response) => {
     try {
         const { accessToken, refreshToken: newRefreshToken } = await userService.refreshTokens(refreshToken);
 
-        // Set the new access token as an HTTP-only cookie
+        // Set new access token as an HTTP-only cookie
         res.cookie("AccessToken", accessToken, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production", // Use HTTPS in production
-            maxAge: 15 * 60 * 1000, // 15 minutes
+            secure: process.env.NODE_ENV === "production",
+            maxAge: 60 * 1000, // 1 minute (should match the frontend expiration)
         });
 
+        // Send back both tokens in response
         res.status(200).send(
             createResponse(
                 { accessToken, refreshToken: newRefreshToken },
@@ -76,9 +77,10 @@ export const refresh = asyncHandler(async (req: Request, res: Response) => {
             )
         );
     } catch (error: any) {
-        throw new Error(error.message);
+        res.status(401).json({ success: false, message: "Invalid or expired refresh token" });
     }
 });
+
 
 
 
