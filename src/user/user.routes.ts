@@ -1,20 +1,25 @@
-import express from "express";
-import * as UserController from "./user.controller";
-import { roleAuth } from "../common/middleware/role-auth.middleware";
+import { Router } from "express";
+import { catchError } from "../common/middleware/catch-error.middleware";
+import * as userController from "./user.controller";
+import * as userValidator from "./user.validation";
+import { authenticateUser } from "../common/middleware/auth.middleware";
 import { rateLimiter } from "../common/helper/rate-limiter.helper";
-import { authenticate } from "../common/middleware/auth.middleware";
-import * as validation from "./user.validation"
 
-const router = express.Router();
+const router = Router();
 
-router.post("/register", rateLimiter, validation.registerValidation,  UserController.createUser);
-router.post("/login", rateLimiter, validation.loginValidation, UserController.loginUser);
-router.post("/refresh-token",validation.refreshTokenValidation, UserController.refreshTokens);
-router.post("/logout", authenticate, UserController.logout);
-router.post("/forgot-password",validation.forgotPasswordValidation, rateLimiter, UserController.forgotPassword);
-router.post("/reset-password",validation.resetPasswordValidation, UserController.resetPassword);
+// Define routes separately
+router.get("/", userController.getAllUsers);
+router.post("/signup", rateLimiter, userValidator.createUser, catchError, userController.createUser);
+router.post("/login", rateLimiter, userValidator.loginUser, catchError, userController.loginUser);
+router.post("/refresh", rateLimiter, userValidator.refreshToken, catchError, userController.refresh);
+router.post("/logout", rateLimiter, authenticateUser, userController.logoutController);
+router.post("/forgot-password", userController.forgotPassword);
+router.post("/reset-password", userController.resetPassword);
 
-router.get("/:id", authenticate, UserController.getUserById);
-router.get("/", authenticate, UserController.getAllUsers);
+// Uncomment these if needed
+// router.get("/:id", userController.getUserById);
+// router.delete("/:id", userController.deleteUser);
+// router.put("/:id", userValidator.updateUser, catchError, userController.updateUser);
+// router.patch("/:id", userValidator.editUser, catchError, userController.editUser);
 
 export default router;

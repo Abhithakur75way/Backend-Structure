@@ -1,24 +1,15 @@
-export interface IUser {
+import { type BaseSchema } from "../common/dto/base.dto";
+
+export interface IUser extends BaseSchema {
+  _id: string;
     name: string;
     email: string;
+    active?: boolean;
+    role: "USER" | "ADMIN";
     password: string;
-    role: string;
-  }
-  
-  export interface ILogin {
-    email: string;
-    password: string;
-  }
-  
-  export interface IRefreshToken {
-    refreshToken: string;
-  }
-  
-  export interface IForgotPassword {
-    email: string;
-  }
-  
-  export interface IResetPassword {
-    token: string;
-    newPassword: string;
-  }
+    refreshToken?: string;
+    resetPasswordToken?: string;
+    resetPasswordExpires?: Date;
+
+    
+}

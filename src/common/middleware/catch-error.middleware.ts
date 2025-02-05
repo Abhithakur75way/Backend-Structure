@@ -1,11 +1,21 @@
-import { Request, Response, NextFunction } from "express";
+import { type Response, type Request, type NextFunction } from "express";
+import expressAsyncHandler from "express-async-handler";
+import { validationResult } from "express-validator";
+import createHttpError from "http-errors";
 
-export const catchErrors =
-  (handler: (req: Request, res: Response, next: NextFunction) => Promise<any>) =>
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      await handler(req, res, next); // Ensure it waits for a Promise
-    } catch (error) {
-      next(error); // Pass errors to the global error handler
+export const catchError = expressAsyncHandler(
+  (req: Request, res: Response, next: NextFunction) => {
+    const errors = validationResult(req);
+    const isError = errors.isEmpty();
+    // eslint-disable-next-line @typescript-eslint/strict-boolean-expressions
+    if (!isError) {
+      const data = { errors: errors.array() };
+      throw createHttpError(400, {
+        message: "Validation error!",
+        data,
+      });
+    } else {
+      next();
     }
-  };
+  }
+);

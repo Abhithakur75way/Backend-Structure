@@ -1,9 +1,16 @@
-import { Request, Response, NextFunction } from "express";
+import { type ErrorRequestHandler } from "express";
+import { type ErrorResponse } from "../helper/response.helper";
 
-export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error("Error: ", err);
-  res.status(err.status || 500).json({
+const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
+  const response: ErrorResponse = {
     success: false,
-    message: err.message || "Internal Server Error",
-  });
+    error_code: (err?.status ?? 500) as number,
+    message: (err?.message ?? "Something went wrong!") as string,
+    data: err?.data ?? {},
+  };
+
+  res.status(response.error_code).send(response);
+  next();
 };
+
+export default errorHandler;
